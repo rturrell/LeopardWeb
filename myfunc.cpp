@@ -5,8 +5,6 @@
 #include <sstream>
 #include <tuple>
 #include <vector>
-#include <map>
-
 
 using std::vector;
 
@@ -59,40 +57,41 @@ void printCoursesWithInstructors(sqlite3* DB) { //Isabella
     }
 }
 
-bool searchCoursesByID(sqlite3* DB, const string& id, vector<map<string, string>>& results) {
-    string sql = "SELECT * FROM COURSE WHERE ID = '" + id + "';";
+void searchCoursesByID(sqlite3* DB) { //Dylan
+    string id;
+    cout << "Enter course ID (e.g., ELEC 3000): ";
+    cin.ignore();
+    getline(cin, id);
 
-    auto callback = [](void* data, int argc, char** argv, char** colNames) -> int {
-        vector<map<string, string>>* rows = static_cast<vector<map<string, string>>*>(data);
-        map<string, string> row;
-        for (int i = 0; i < argc; ++i) {
-            row[colNames[i]] = argv[i] ? argv[i] : "NULL";
+    string sql = "SELECT * FROM COURSE WHERE ID = '" + id + "';";
+    auto callback = [](void*, int argc, char** argv, char** col) -> int {
+        for (int i = 0; i < argc; i++) {
+            cout << col[i] << ": " << (argv[i] ? argv[i] : "NULL") << "\n";
         }
-        rows->push_back(row);
+        cout << "------------------\n";
         return 0;
         };
-
-    int rc = sqlite3_exec(DB, sql.c_str(), callback, &results, nullptr);
-    return rc == SQLITE_OK;
+    if (sqlite3_exec(DB, sql.c_str(), callback, nullptr, nullptr) != SQLITE_OK) {
+        cerr << "Error searching courses by ID.\n";
+    }
 }
 
-bool getCourseRoster(
-    sqlite3* DB,
-    int instructorID,
-    int crn,
-    string& courseTitle,
-    vector<tuple<int, string, string>>& roster // ID, First, Last
-) {
-    // 1. Verify instructor is assigned to the course
+void printRoster(sqlite3* DB, int instructorID) { // Dylan
+    int crn;
+    cout << "Enter CRN of the course: ";
+    cin >> crn;
+
+
     string verifySQL = "SELECT TITLE FROM COURSE WHERE CRN = " + to_string(crn) +
         " AND INSTRUCTOR = " + to_string(instructorID) + ";";
 
     bool authorized = false;
+    string courseTitle;
 
     auto verifyCallback = [](void* data, int argc, char** argv, char**) -> int {
         if (argc > 0 && argv[0]) {
             *(bool*)(((void**)data)[0]) = true;
-            *((string*)(((void**)data)[1])) = argv[0];  // course title
+            *((string*)(((void**)data)[1])) = argv[0];
         }
         return 0;
         };
@@ -100,29 +99,37 @@ bool getCourseRoster(
     void* data[2] = { &authorized, &courseTitle };
 
     int rc = sqlite3_exec(DB, verifySQL.c_str(), verifyCallback, data, nullptr);
-    if (rc != SQLITE_OK || !authorized) {
-        return false;
+    if (rc != SQLITE_OK) {
+        cerr << "Error verifying instructor-course assignment: " << sqlite3_errmsg(DB) << endl;
+        return;
     }
 
-    // 2. Get roster
+    if (!authorized) {
+        cout << "You are not assigned to this course (CRN: " << crn << ").\n";
+        return;
+    }
+
+    cout << "\nCourse: " << courseTitle << " (CRN: " << crn << ")\n";
+    cout << "Class Roster:\n";
+
     string sql = R"(
         SELECT S.ID, S.FIRSTNAME, S.LASTNAME
         FROM COURSE_ROSTER R
         JOIN STUDENT S ON R.STUDENT_ID = S.ID
         WHERE R.COURSE_CRN = )" + to_string(crn) + ";";
 
-    auto callback = [](void* data, int argc, char** argv, char**) -> int {
-        if (argc == 3) {
-            auto* list = static_cast<vector<tuple<int, string, string>>*>(data);
-            list->emplace_back(atoi(argv[0]), argv[1], argv[2]);
-        }
+    auto callback = [](void*, int argc, char** argv, char**) -> int {
+        cout << "Student ID: " << argv[0]
+            << ", First Name: " << argv[1]
+            << ", Last Name: " << argv[2] << endl;
         return 0;
         };
 
-    rc = sqlite3_exec(DB, sql.c_str(), callback, &roster, nullptr);
-    return rc == SQLITE_OK;
+    rc = sqlite3_exec(DB, sql.c_str(), callback, nullptr, nullptr);
+    if (rc != SQLITE_OK) {
+        cerr << "Error retrieving course roster: " << sqlite3_errmsg(DB) << endl;
+    }
 }
-
 
 void printInstructorSchedule(sqlite3* DB, int instructorID) { //Ergisa
     string sql = "SELECT CRN, ID, TITLE, STARTTIME, ENDTIME, DAY1, DAY2, SEMESTER, YEAR "
@@ -146,38 +153,44 @@ void printInstructorSchedule(sqlite3* DB, int instructorID) { //Ergisa
 }
 
 
-bool searchCourseByCRN(sqlite3* DB, int crn, vector<map<string, string>>& results) {
+void searchCourseByCRN(sqlite3* DB) {//Ergisa
+    int crn;
+    cout << "Enter CRN (e.g., 121): ";
+    cin >> crn;
+
     string sql = "SELECT * FROM COURSE WHERE CRN = " + to_string(crn) + ";";
 
-    auto callback = [](void* data, int argc, char** argv, char** colNames) -> int {
-        auto* rows = static_cast<vector<map<string, string>>*>(data);
-        map<string, string> row;
-        for (int i = 0; i < argc; ++i) {
-            row[colNames[i]] = argv[i] ? argv[i] : "NULL";
+    auto callback = [](void*, int argc, char** argv, char** col) -> int {
+        for (int i = 0; i < argc; i++) {
+            cout << col[i] << ": " << (argv[i] ? argv[i] : "NULL") << "\n";
         }
-        rows->push_back(row);
+        cout << "------------------\n";
         return 0;
         };
 
-    int rc = sqlite3_exec(DB, sql.c_str(), callback, &results, nullptr);
-    return rc == SQLITE_OK;
+    if (sqlite3_exec(DB, sql.c_str(), callback, nullptr, nullptr) != SQLITE_OK) {
+        cerr << "Error searching course by CRN.\n";
+    }
 }
 
-bool removeCourseFromSchedule(sqlite3* DB, int studentID, const string& courseID) {
-    // 1. Delete from SSCHEDULE
+
+void removeCourseFromSchedule(sqlite3* DB, int studentID) { // Isabella
+    string courseID;
+    cout << "Enter Course ID to remove: ";
+    cin >> ws;
+    getline(cin, courseID);
+
     string sqlSSchedule = "DELETE FROM SSCHEDULE WHERE ID = " + to_string(studentID) +
         " AND COURSEID = '" + courseID + "';";
 
     int rc = sqlite3_exec(DB, sqlSSchedule.c_str(), nullptr, nullptr, nullptr);
     if (rc != SQLITE_OK) {
         cerr << "Error removing from SSCHEDULE: " << sqlite3_errmsg(DB) << endl;
-        return false;
+        return;
     }
 
-    // 2. Get associated CRNs from COURSE
     vector<int> crns;
     string getCRNsSQL = "SELECT CRN FROM COURSE WHERE ID = '" + courseID + "';";
-
     auto crnCallback = [](void* data, int argc, char** argv, char**) -> int {
         if (argc > 0 && argv[0]) {
             vector<int>* crnList = static_cast<vector<int>*>(data);
@@ -185,27 +198,23 @@ bool removeCourseFromSchedule(sqlite3* DB, int studentID, const string& courseID
         }
         return 0;
         };
-
     rc = sqlite3_exec(DB, getCRNsSQL.c_str(), crnCallback, &crns, nullptr);
     if (rc != SQLITE_OK) {
         cerr << "Error fetching CRNs: " << sqlite3_errmsg(DB) << endl;
-        return false;
+        return;
     }
 
-    // 3. Delete each matching CRN from COURSE_ROSTER
     for (int crn : crns) {
         string deleteRosterSQL = "DELETE FROM COURSE_ROSTER WHERE STUDENT_ID = " + to_string(studentID) +
             " AND COURSE_CRN = " + to_string(crn) + ";";
         rc = sqlite3_exec(DB, deleteRosterSQL.c_str(), nullptr, nullptr, nullptr);
         if (rc != SQLITE_OK) {
             cerr << "Error removing from COURSE_ROSTER for CRN " << crn << ": " << sqlite3_errmsg(DB) << endl;
-            return false;
         }
     }
 
-    return true; // success
+    cout << "Course removed from schedule and course roster successfully.\n";
 }
-
 
 
 void searchCourseByID(sqlite3* DB) { //Ergisa 
@@ -877,36 +886,37 @@ void insertLogin(sqlite3* DB) {//Dylan
     executeSQL(DB, sql, "Login Inserted.");
 }
 
-bool addCourseToSystem(
-    sqlite3* DB,
-    int crn,
-    const string& title,
-    const string& ID,
-    const string& department,
-    const string& day1,
-    const string& day2,
-    const string& semester,
-    int year,
-    int credits,
-    int start,
-    int end
-) {
+void addCourseToSystem(sqlite3* DB) { // Ergisa
+    int crn, year, credits;
+    string title, department, semester, ID;
+    string day1, day2;
+    int start, end;
+
+    cout << "Insert Course\nEnter CRN: "; cin >> crn;
+    cout << "Title: "; cin.ignore(); getline(cin, title);
+    cout << "ID: "; getline(cin, ID);
+    cout << "Department: "; getline(cin, department);
+    cout << "Day 1 (e.g., Mon): "; getline(cin, day1);
+    cout << "Day 2 (leave blank if none): "; getline(cin, day2);
+    cout << "Semester: "; getline(cin, semester);
+    cout << "Year: "; cin >> year;
+    cout << "Credits: "; cin >> credits;
+    cout << "Start Time (24hr format): "; cin >> start;
+    cout << "End Time (24hr format): "; cin >> end;
+
     string sql = "INSERT INTO COURSE (CRN, TITLE, ID, DEPARTMENT, STARTTIME, ENDTIME, DAY1, DAY2, SEMESTER, YEAR, CREDITS) VALUES(" +
         to_string(crn) + ", '" + title + "', '" + ID + "', '" + department + "', " +
         to_string(start) + ", " + to_string(end) + ", '" + day1 + "', '" + day2 + "', '" +
         semester + "', " + to_string(year) + ", " + to_string(credits) + ");";
 
-    int rc = sqlite3_exec(DB, sql.c_str(), nullptr, nullptr, nullptr);
-    return rc == SQLITE_OK;
+    executeSQL(DB, sql, "Course inserted.");
 }
 
+void removeCourseFromSystem(sqlite3* DB) {//Dylan
+    int crn;
+    cout << "Enter CRN of the course to remove: ";
+    cin >> crn;
 
-bool removeCourseFromSystem(
-    sqlite3* DB,
-    int crn,
-    bool confirmDelete,
-    string* removedCourseTitle = nullptr
-) {
     bool courseExists = false;
     string courseTitle;
 
@@ -927,33 +937,45 @@ bool removeCourseFromSystem(
         };
 
     int rc = sqlite3_exec(DB, checkSQL.c_str(), checkCallback, &data, nullptr);
-    if (rc != SQLITE_OK || !courseExists) {
-        return false;
+    if (rc != SQLITE_OK) {
+        cerr << "Error checking course: " << sqlite3_errmsg(DB) << endl;
+        return;
     }
 
-    if (!confirmDelete) {
-        return false;  // simulate user cancelled
+    if (!courseExists) {
+        cout << "Course with CRN " << crn << " not found.\n";
+        return;
     }
+
+    cout << "Are you sure you want to permanently delete the course \"" << courseTitle << "\" (CRN: " << crn << ")? (yes/no): ";
+    string confirm;
+    cin >> confirm;
+    for (char& c : confirm) {
+        c = tolower(c);
+    }
+    if (confirm != "yes") {
+        cout << "Operation cancelled.\n";
+        return;
+    }
+
+
 
     string deleteRosterSQL = "DELETE FROM COURSE_ROSTER WHERE COURSE_CRN = " + to_string(crn) + ";";
     rc = sqlite3_exec(DB, deleteRosterSQL.c_str(), nullptr, nullptr, nullptr);
     if (rc != SQLITE_OK) {
-        return false;
+        cerr << "Error deleting from COURSE_ROSTER: " << sqlite3_errmsg(DB) << endl;
+        return;
     }
 
     string deleteCourseSQL = "DELETE FROM COURSE WHERE CRN = " + to_string(crn) + ";";
     rc = sqlite3_exec(DB, deleteCourseSQL.c_str(), nullptr, nullptr, nullptr);
     if (rc != SQLITE_OK) {
-        return false;
+        cerr << "Error deleting course: " << sqlite3_errmsg(DB) << endl;
+        return;
     }
 
-    if (removedCourseTitle) {
-        *removedCourseTitle = courseTitle;
-    }
-
-    return true;
+    cout << "Course \"" << courseTitle << "\" (CRN: " << crn << ") has been removed from the system.\n";
 }
-
 
 
 void removeStudent(sqlite3* DB) {//Dylan
@@ -1040,58 +1062,77 @@ void searchStudentByID(sqlite3* DB) {//Dylan
     sqlite3_exec(DB, sql.c_str(), callback, NULL, NULL);
 }
 
-int lcallback(void* data, int argc, char** argv, char** azColName) {//Isabella
+//int lcallback(void* data, int argc, char** argv, char** azColName) {//Isabella
+//    if (argv[0]) {
+//        *((string*)data) = argv[0];
+//    }
+//    return 0;
+//}
+
+//string currentUserID = "";
+
+// myfunc.h
+//string checklogin(sqlite3* DB, const string& username, const string& password){//Isabella
+//    while (true) {
+//        string role;
+//        string username;
+//        string password;
+//        cout << "Enter Username: ";
+//        cin >> username;
+//        cout << "Enter Password: ";
+//        cin.ignore(); getline(cin, password);
+//
+//        string sql = "SELECT ROLES FROM LOGIN WHERE USERNAME = '" + username + "' AND PASSWORD = '" + password + "';";
+//        role.clear();
+//        sqlite3_exec(DB, sql.c_str(), lcallback, &role, nullptr);
+//
+//        if (!role.empty()) {
+//            cout << "Login Successful.\n";
+//
+//            if (role == "STUDENT") {
+//                string findID = "SELECT ID FROM STUDENT WHERE EMAIL = '" + username + "';";
+//                sqlite3_exec(DB, findID.c_str(), lcallback, &currentUserID, nullptr);
+//            }
+//
+//            return role;
+//        }
+//        else {
+//            cout << "Login failed. Invalid Username or Password. Try Again.\n\n";
+//        }
+//    }
+//}
+int lcallback(void* data, int argc, char** argv, char** azColName) {
     if (argv[0]) {
         *((string*)data) = argv[0];
     }
     return 0;
 }
 
-string checklogin(sqlite3* DB, const string& username, const string& password, string& currentUserID) {
+string checklogin(sqlite3* DB, const string& username, const string& password) {
     string role;
-
-    // 1. Get role from LOGIN table
     string sql = "SELECT ROLES FROM LOGIN WHERE USERNAME = '" + username + "' AND PASSWORD = '" + password + "';";
-    role.clear();
     sqlite3_exec(DB, sql.c_str(), lcallback, &role, nullptr);
 
-    // 2. If login is successful
     if (!role.empty()) {
-        string idQuery;
-
-        if (role == "STUDENT") {
-            idQuery = "SELECT ID FROM STUDENT WHERE EMAIL = '" + username + "';";
-        }
-        else if (role == "INSTRUCTOR") {
-            idQuery = "SELECT ID FROM INSTRUCTOR WHERE EMAIL = '" + username + "';";
-        }
-        else if (role == "ADMINISTRATOR") {
-            idQuery = "SELECT ID FROM ADMINISTRATOR WHERE EMAIL = '" + username + "';";
-        }
-
-        if (!idQuery.empty()) {
-            sqlite3_exec(DB, idQuery.c_str(), lcallback, &currentUserID, nullptr);
-        }
-
-        return role;
+        cout << "Login successful.\n";
+    }
+    else {
+        cout << "Login failed. Invalid Username or Password.\n";
     }
 
-    // 3. Login failed
-    return "";
+    return role;
 }
 
 
 
 
 
+void addCourseToSchedule(sqlite3* DB, int studentID) { // Ergisa
+    string courseID;
+    cout << "Enter Course ID (e.g., ELEC 3000): ";
+    cin >> ws;
+    getline(cin, courseID);
 
-bool addCourseToSchedule(
-    sqlite3* DB,
-    int studentID,
-    const string& courseID,
-    int selectedCRN,
-    bool confirmAdd
-) {
     struct Course {
         int crn;
         string title;
@@ -1109,7 +1150,7 @@ bool addCourseToSchedule(
 
     auto callback = [](void* data, int argc, char** argv, char**) -> int {
         vector<Course>* courses = static_cast<vector<Course>*>(data);
-        if (argc == 8) {
+        if (argc == 8 && argv[0] && argv[1] && argv[2] && argv[3] && argv[4] && argv[5] && argv[6] && argv[7]) {
             Course c;
             c.crn = atoi(argv[0]);
             c.title = argv[1];
@@ -1125,12 +1166,35 @@ bool addCourseToSchedule(
         };
 
     int rc = sqlite3_exec(DB, sql.c_str(), callback, &matchingCourses, nullptr);
-    if (rc != SQLITE_OK || matchingCourses.empty()) return false;
+    if (rc != SQLITE_OK) {
+        cerr << "Error retrieving courses: " << sqlite3_errmsg(DB) << endl;
+        return;
+    }
+
+    if (matchingCourses.empty()) {
+        cout << "No courses found with ID: " << courseID << endl;
+        return;
+    }
+
+    cout << "\nMatching Courses:\n";
+    for (const auto& c : matchingCourses) {
+        cout << "CRN: " << c.crn << ", Title: " << c.title
+            << ", Time: " << c.start << "-" << c.end
+            << ", Days: " << c.day1 << "/" << c.day2
+            << ", Semester: " << c.semester << ", Year: " << c.year << endl;
+    }
+
+    int selectedCRN;
+    cout << "\nEnter the CRN of the course you want to add: ";
+    cin >> selectedCRN;
 
     auto it = std::find_if(matchingCourses.begin(), matchingCourses.end(),
         [selectedCRN](const Course& c) { return c.crn == selectedCRN; });
 
-    if (it == matchingCourses.end()) return false;
+    if (it == matchingCourses.end()) {
+        cout << "Invalid CRN selected.\n";
+        return;
+    }
 
     Course selected = *it;
 
@@ -1152,7 +1216,21 @@ bool addCourseToSchedule(
         };
 
     sqlite3_exec(DB, conflictSQL.c_str(), conflictCallback, &conflict, nullptr);
-    if (conflict || !confirmAdd) return false;
+
+    if (conflict) {
+        cout << "Schedule conflict detected with another course.\n";
+        return;
+    }
+
+    string confirm;
+    cout << "No conflict. Add this course to your schedule? (yes/no): ";
+    cin >> ws;
+    getline(cin, confirm);
+
+    if (confirm != "yes") {
+        cout << "Course not added.\n";
+        return;
+    }
 
     string insertSQL = "INSERT INTO SSCHEDULE (ID, STARTTIME, ENDTIME, DAY1, DAY2, SEMESTER, YEAR, COURSEID) VALUES (" +
         to_string(studentID) + ", " +
@@ -1165,15 +1243,20 @@ bool addCourseToSchedule(
         courseID + "');";
 
     rc = sqlite3_exec(DB, insertSQL.c_str(), nullptr, nullptr, nullptr);
-    if (rc != SQLITE_OK) return false;
+    rc = sqlite3_exec(DB, insertSQL.c_str(), nullptr, nullptr, nullptr);
+    if (rc != SQLITE_OK) {
+        cerr << "Error inserting course into schedule: " << sqlite3_errmsg(DB) << endl;
+        return;
+    }
 
     string insertRosterSQL = "INSERT INTO COURSE_ROSTER (STUDENT_ID, COURSE_CRN) VALUES (" +
         to_string(studentID) + ", " + to_string(selected.crn) + ");";
 
     rc = sqlite3_exec(DB, insertRosterSQL.c_str(), nullptr, nullptr, nullptr);
-    if (rc != SQLITE_OK) return false;
+    if (rc != SQLITE_OK) {
+        cerr << "Error inserting into COURSE_ROSTER: " << sqlite3_errmsg(DB) << endl;
+        return;
+    }
 
-    return true;
+    cout << "Course successfully added to schedule and roster.\n";
 }
-
-

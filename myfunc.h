@@ -6,8 +6,6 @@
 #include <sstream>
 #include <tuple>
 #include <vector>
-#include <map>
-
 
 using std::vector;
 
@@ -17,21 +15,15 @@ static int callback(void* data, int argc, char** argv, char** azColName);
 
 void printCoursesWithInstructors(sqlite3* DB);
 
-bool searchCoursesByID(sqlite3* DB, const string& id, vector<map<string, string>>& results);
+void searchCoursesByID(sqlite3* DB);
 
-bool getCourseRoster(
-    sqlite3* DB,
-    int instructorID,
-    int crn,
-    string& courseTitle,
-    vector<tuple<int, string, string>>& roster // ID, First, Last
-);
+void printRoster(sqlite3* DB, int instructorID);
 
 void printInstructorSchedule(sqlite3* DB, int instructorID);
 
-bool searchCourseByCRN(sqlite3* DB, int crn, vector<map<string, string>>& results);
+void searchCourseByCRN(sqlite3* DB);
 
-bool removeCourseFromSchedule(sqlite3* DB, int studentID, const string& courseID);
+void removeCourseFromSchedule(sqlite3* DB, int studentID);
 
 void searchCourseByID(sqlite3* DB);
 
@@ -93,27 +85,9 @@ void insertInstructor(sqlite3* DB);
 
 void insertLogin(sqlite3* DB);
 
-bool addCourseToSystem(
-    sqlite3* DB,
-    int crn,
-    const string& title,
-    const string& ID,
-    const string& department,
-    const string& day1,
-    const string& day2,
-    const string& semester,
-    int year,
-    int credits,
-    int start,
-    int end
-);
+void addCourseToSystem(sqlite3* DB);
 
-bool removeCourseFromSystem(
-    sqlite3* DB,
-    int crn,
-    bool confirmDelete,
-    string* removedCourseTitle = nullptr
-);
+void removeCourseFromSystem(sqlite3* DB);
 
 void removeStudent(sqlite3* DB);
 
@@ -129,16 +103,8 @@ void searchStudentByID(sqlite3* DB);
 
 int lcallback(void* data, int argc, char** argv, char** azColName);
 
-string checklogin(sqlite3* DB, const string& username, const string& password, string& currentUserID);
+string checklogin(sqlite3* DB, const string& username, const string& password);
 
-bool addCourseToSchedule(
-    sqlite3* DB,
-    int studentID,
-    const string& courseID,
-    int selectedCRN,
-    bool confirmAdd
-);
-
+void addCourseToSchedule(sqlite3* DB, int studentID);
 
 void printStudentSchedule(sqlite3* DB, int studentID);
-
